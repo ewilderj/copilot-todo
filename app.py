@@ -40,16 +40,25 @@ def index():
 @app.route('/add', methods=['POST'])
 def add_todo():
     global todos
-    todo = request.form.get('todo')
-    if todo:
-        todos.append({
-            'text': todo, 
-            'completed': False, 
-            'notes': '',
+    if request.is_json:
+        data = request.get_json()
+        text = data.get('text', '').strip()
+        notes = data.get('notes', '').strip()
+    else:
+        text = request.form.get('todo', '').strip()
+        notes = ''
+    
+    if text:
+        new_todo = {
+            'text': text,
+            'notes': notes,
+            'completed': False,
             'position': get_next_position()
-        })
+        }
+        todos.append(new_todo)
         save_todos(todos)
-    return redirect(url_for('index'))
+        return jsonify(success=True, todo=new_todo)
+    return jsonify(success=False, error="Todo text cannot be empty"), 400
 
 @app.route('/delete/<int:todo_id>')
 def delete_todo(todo_id):
