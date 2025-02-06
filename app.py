@@ -7,9 +7,11 @@ app = Flask(__name__)
 # Path to the JSON file
 TODO_FILE = 'todos.json'
 
-# Load todos from the JSON file
+# In-memory storage for todo items
+todos = []
+
 def load_todos():
-    todos = []
+    global todos
     if os.path.exists(TODO_FILE):
         with open(TODO_FILE, 'r') as file:
             todos = json.load(file)
@@ -18,6 +20,9 @@ def load_todos():
                 if 'position' not in todo:
                     todo['position'] = i
     return sorted(todos, key=lambda x: x['position'])
+
+# Initialize todos at startup
+todos = load_todos()
 
 # Save todos to the JSON file
 def save_todos(todos):
@@ -28,15 +33,13 @@ def save_todos(todos):
 def get_next_position():
     return len(todos)
 
-# In-memory storage for todo items
-todos = load_todos()
-
 @app.route('/')
 def index():
     return render_template('index.html', todos=todos)
 
 @app.route('/add', methods=['POST'])
 def add_todo():
+    global todos
     todo = request.form.get('todo')
     if todo:
         todos.append({
@@ -50,6 +53,7 @@ def add_todo():
 
 @app.route('/delete/<int:todo_id>')
 def delete_todo(todo_id):
+    global todos
     if 0 <= todo_id < len(todos):
         deleted_pos = todos[todo_id]['position']
         todos.pop(todo_id)
@@ -78,18 +82,17 @@ def update_note(todo_id):
 
 @app.route('/reorder', methods=['POST'])
 def reorder_todos():
+    global todos
     order = request.json.get('order')
     if not order:
         return jsonify(success=False), 400
-        
-    # Create a new order based on the positions
+    
     reordered = []
     for idx, pos in enumerate(order):
         todo = todos[int(pos)]
         todo['position'] = idx
         reordered.append(todo)
     
-    global todos
     todos = reordered
     save_todos(todos)
     return jsonify(success=True)
