@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo application written by Copilot Agent</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
+    <style>
+        .list-group-item {
+            text-align: left;
+        }
+        .todo-text {
+            flex-grow: 1;
+            text-align: left;
+            cursor: pointer;
+            padding: 2px 4px;
+        }
+        .todo-completed {
+            text-decoration: line-through;
+        }
+        .handle {
+            cursor: grab;
+        }
+        .handle:active {
+            cursor: grabbing;
+        }
+        .todo-notes {
+            font-size: 0.85em;
+            color: #666;
+            margin-left: 2.5rem;
+            margin-top: 0.5rem;
+            min-height: 1.5em;
+            max-height: 0;
+            overflow: hidden;
+            opacity: 0;
+            transition: all 0.2s ease-out;
+        }
+        .todo-notes.has-note {
+            max-height: 100px;
+            opacity: 1;
+            margin-top: 0.5rem;
+        }
+        .notes-edit {
+            width: 100%;
+            margin-right: 0.5rem;
+        }
+        .notes-text {
+            cursor: pointer;
+        }
+        .notes-text:hover {
+            background-color: #f8f9fa;
+            border-radius: 3px;
+            padding: 2px 4px;
+            margin: -2px -4px;
+        }
+        .todo-text:hover {
+            background-color: #f8f9fa;
+            border-radius: 3px;
+        }
+        .todo-text.editing {
+            cursor: text;
+        }
+        .btn i {
+            margin: 0;
+        }
+        [data-tooltip] {
+            position: relative;
+        }
+        [data-tooltip]:hover:after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Todo application written by Copilot Agent</h1>
+        <form action="{{ url_for('add_todo') }}" method="post" class="form-inline justify-content-center mb-4">
+            <input type="text" name="todo" class="form-control mr-2" placeholder="Enter a new todo">
+            <button type="submit" class="btn btn-primary" data-tooltip="Add Todo"><i class="fas fa-plus"></i></button>
+        </form>
+        <ul id="todo-list" class="list-group">
+            {% for todo in todos %}
+                <li class="list-group-item" data-id="{{ loop.index0 }}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="handle mr-3">&#9776;</span>
+                        <input type="checkbox" class="mr-2" {% if todo.completed %}checked{% endif %} onclick="toggleComplete(this)" data-id="{{ loop.index0 }}">
+                        <span class="todo-text {% if todo.completed %}todo-completed{% endif %}" onclick="editText(this)" title="Click to edit">{{ todo.text }}</span>
+                        <div>
+                            <button class="btn btn-sm btn-outline-secondary mr-2" onclick="editNote(this)" data-id="{{ loop.index0 }}" data-tooltip="{% if todo.notes %}Edit Note{% else %}Add Note{% endif %}">
+                                <i class="{% if todo.notes %}fas fa-edit{% else %}fas fa-plus-circle{% endif %}"></i>
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="confirmDelete(this)" data-id="{{ loop.index0 }}" data-tooltip="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="todo-notes {{ 'has-note' if todo.notes }}">
+                        <div class="d-flex">
+                            <span class="notes-text flex-grow-1" onclick="editNote(this.closest('.list-group-item').querySelector('.btn-outline-secondary'))" title="Click to edit">
+                                {{- todo.notes -}}
+                            </span>
+                        </div>
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+        <h2 class="mt-5">JSON Data</h2>
+        <pre id="json-data"></pre>
+    </div>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script>
+        function debounce(func, wait) {
+            let timeout;
+            return function(...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func(...args), wait);
+            };
+        }
+
+        var el = document.getElementById('todo-list');
+        var sortable = Sortable.create(el, {
+            handle: '.handle',
+            onEnd: function (evt) {
+                var order = sortable.toArray();
+                fetch('{{ url_for("reorder_todos") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ order: order })
+                }).then(updateJsonData);
+                updateDataIds();
+            }
+        });
+
+        function toggleComplete(checkbox) {
+            var todoId = checkbox.getAttribute('data-id');
+            fetch('{{ url_for("complete_todo", todo_id=0) }}'.replace('0', todoId), {
+                method: 'POST'
+            }).then(response => {
+                if (response.ok) {
+                    location.reload();
+                }
+            });
+        }
+
+        function editNote(button) {
+            const listItem = button.closest('.list-group-item');
+            const noteContainer = listItem.querySelector('.todo-notes');
+            const notesText = noteContainer.querySelector('.notes-text');
+            const currentNote = notesText.textContent;
+            let isEscaping = false;
+            
+            // Show the notes container
+            requestAnimationFrame(() => {
+                noteContainer.classList.add('has-note');
+            });
+            
+            // Create input field
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentNote;
+            input.className = 'form-control form-control-sm notes-edit';
+            input.placeholder = 'Add a note';
+            
+            // Hide the text
+            notesText.style.display = 'none';
+            
+            // Add input field
+            noteContainer.querySelector('.d-flex').insertBefore(input, notesText);
+            input.focus();
+            
+            // Handle saving the note
+            function saveNote() {
+                if (isEscaping) return;
+                const todoId = button.getAttribute('data-id');
+                fetch('{{ url_for("update_note", todo_id=0) }}'.replace('0', todoId), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ note: input.value })
+                }).then(response => {
+                    if (response.ok) {
+                        if (input.value) {
+                            notesText.textContent = input.value;
+                            noteContainer.classList.add('has-note');
+                            notesText.style.display = 'block';
+                            button.innerHTML = '<i class="fas fa-edit"></i>';
+                            button.setAttribute('data-tooltip', 'Edit Note');
+                            input.remove();
+                        } else {
+                            notesText.textContent = '';
+                            notesText.style.display = 'block';
+                            noteContainer.classList.remove('has-note');
+                            button.innerHTML = '<i class="fas fa-plus-circle"></i>';
+                            button.setAttribute('data-tooltip', 'Add Note');
+                            // Wait for transition to complete before removing input
+                            setTimeout(() => {
+                                input.remove();
+                            }, 200); // Match the transition duration
+                        }
+                        updateJsonData();
+                    }
+                });
+            }
+            
+            // Save on enter
+            input.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    saveNote();
+                }
+            });
+
+            // Handle escape to cancel
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    isEscaping = true;
+                    notesText.style.display = 'block';
+                    if (currentNote) {
+                        noteContainer.classList.add('has-note');
+                    } else {
+                        noteContainer.classList.remove('has-note');
+                    }
+                    input.remove();
+                }
+            });
+            
+            // Save on blur
+            input.addEventListener('blur', saveNote);
+        }
+
+        function confirmDelete(button) {
+            const todoId = button.getAttribute('data-id');
+            const todoText = button.closest('.list-group-item').querySelector('.todo-text').textContent;
+            if (confirm(`Are you sure you want to delete "${todoText}"?`)) {
+                window.location.href = '{{ url_for("delete_todo", todo_id=0) }}'.replace('0', todoId);
+            }
+        }
+
+        const updateJsonData = debounce(() => {
+            fetch('/todos.json')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('json-data').textContent = JSON.stringify(data, null, 2);
+                });
+        }, 250);
+
+        function updateDataIds() {
+            var items = document.querySelectorAll('#todo-list .list-group-item');
+            items.forEach((item, index) => {
+                item.setAttribute('data-id', index);
+                var checkbox = item.querySelector('input[type="checkbox"]');
+                checkbox.setAttribute('data-id', index);
+                var editButton = item.querySelector('button');
+                editButton.setAttribute('data-id', index);
+            });
+        }
+
+        function editText(textSpan) {
+            const listItem = textSpan.closest('.list-group-item');
+            const todoId = listItem.getAttribute('data-id');
+            const currentText = textSpan.textContent;
+            let isEscaping = false;
+            
+            // Create input field
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentText;
+            input.className = 'form-control';
+            
+            // Hide the text span and add input
+            textSpan.style.display = 'none';
+            textSpan.parentNode.insertBefore(input, textSpan);
+            input.focus();
+            
+            function saveText() {
+                if (isEscaping) return;
+                const newText = input.value.trim();
+                if (!newText) {
+                    input.classList.add('is-invalid');
+                    return;
+                }
+                
+                fetch('{{ url_for("update_text", todo_id=0) }}'.replace('0', todoId), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ text: newText })
+                }).then(response => {
+                    if (response.ok) {
+                        textSpan.textContent = newText;
+                        textSpan.style.display = '';
+                        input.remove();
+                        updateJsonData();
+                    } else {
+                        input.classList.add('is-invalid');
+                    }
+                });
+            }
+            
+            // Save on enter
+            input.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    saveText();
+                }
+            });
+
+            // Handle escape to cancel
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    isEscaping = true;
+                    textSpan.style.display = '';
+                    input.remove();
+                }
+            });
+            
+            // Save on blur
+            input.addEventListener('blur', saveText);
+        }
+
+        // Initial load of JSON data
+        updateJsonData();
+    </script>
+</body>
+</html>
