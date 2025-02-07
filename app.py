@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 import json
 import os
+import uuid
 
 app = Flask(__name__)
 
@@ -15,8 +16,10 @@ def load_todos():
     if os.path.exists(TODO_FILE):
         with open(TODO_FILE, 'r') as file:
             todos = json.load(file)
-            # Add position if missing
+            # Add UUID and position if missing
             for i, todo in enumerate(todos):
+                if 'id' not in todo:
+                    todo['id'] = str(uuid.uuid4())
                 if 'position' not in todo:
                     todo['position'] = i
     return sorted(todos, key=lambda x: x['position'])
@@ -50,6 +53,7 @@ def add_todo():
     
     if text:
         new_todo = {
+            'id': str(uuid.uuid4()),
             'text': text,
             'notes': notes,
             'completed': False,
@@ -60,12 +64,17 @@ def add_todo():
         return jsonify(success=True, todo=new_todo)
     return jsonify(success=False, error="Todo text cannot be empty"), 400
 
-@app.route('/delete/<int:todo_id>')
+@app.route('/delete/<todo_id>')
 def delete_todo(todo_id):
     global todos
-    if 0 <= todo_id < len(todos):
-        deleted_pos = todos[todo_id]['position']
-        todos.pop(todo_id)
+    deleted_pos = None
+    for i, todo in enumerate(todos):
+        if todo['id'] == todo_id:
+            deleted_pos = todo['position']
+            todos.pop(i)
+            break
+    
+    if deleted_pos is not None:
         # Update positions for remaining items
         for todo in todos:
             if todo['position'] > deleted_pos:
@@ -73,20 +82,23 @@ def delete_todo(todo_id):
         save_todos(todos)
     return redirect(url_for('index'))
 
-@app.route('/complete/<int:todo_id>', methods=['POST'])
+@app.route('/complete/<todo_id>', methods=['POST'])
 def complete_todo(todo_id):
-    if 0 <= todo_id < len(todos):
-        todos[todo_id]['completed'] = not todos[todo_id]['completed']
-        save_todos(todos)
-    return jsonify(success=True)
+    for todo in todos:
+        if todo['id'] == todo_id:
+            todo['completed'] = not todo['completed']
+            save_todos(todos)
+            return jsonify(success=True)
+    return jsonify(success=False), 404
 
-@app.route('/update_note/<int:todo_id>', methods=['POST'])
+@app.route('/update_note/<todo_id>', methods=['POST'])
 def update_note(todo_id):
-    if 0 <= todo_id < len(todos):
-        note = request.json.get('note', '')
-        todos[todo_id]['notes'] = note
-        save_todos(todos)
-        return jsonify(success=True)
+    for todo in todos:
+        if todo['id'] == todo_id:
+            note = request.json.get('note', '')
+            todo['notes'] = note
+            save_todos(todos)
+            return jsonify(success=True)
     return jsonify(success=False), 404
 
 @app.route('/reorder', methods=['POST'])
@@ -96,25 +108,30 @@ def reorder_todos():
     if not order:
         return jsonify(success=False), 400
     
+    # Create a mapping of id to todo item
+    todo_map = {todo['id']: todo for todo in todos}
+    
     reordered = []
-    for idx, pos in enumerate(order):
-        todo = todos[int(pos)]
-        todo['position'] = idx
-        reordered.append(todo)
+    for idx, todo_id in enumerate(order):
+        if todo_id in todo_map:
+            todo = todo_map[todo_id]
+            todo['position'] = idx
+            reordered.append(todo)
     
     todos = reordered
     save_todos(todos)
     return jsonify(success=True)
 
-@app.route('/update_text/<int:todo_id>', methods=['POST'])
+@app.route('/update_text/<todo_id>', methods=['POST'])
 def update_text(todo_id):
-    if 0 <= todo_id < len(todos):
-        text = request.json.get('text', '').strip()
-        if not text:
-            return jsonify(success=False, error="Todo text cannot be empty"), 400
-        todos[todo_id]['text'] = text
-        save_todos(todos)
-        return jsonify(success=True)
+    for todo in todos:
+        if todo['id'] == todo_id:
+            text = request.json.get('text', '').strip()
+            if not text:
+                return jsonify(success=False, error="Todo text cannot be empty"), 400
+            todo['text'] = text
+            save_todos(todos)
+            return jsonify(success=True)
     return jsonify(success=False), 404
 
 @app.route('/todos.json')

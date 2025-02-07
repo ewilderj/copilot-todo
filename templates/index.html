@@ -188,16 +188,16 @@
         </div>
         <ul id="todo-list" class="list-group">
             {% for todo in todos %}
-                <li class="list-group-item" data-id="{{ loop.index0 }}">
+                <li class="list-group-item" data-id="{{ todo.id }}">
                     <div class="d-flex justify-content-between align-items-center">
                         <span class="handle mr-3">&#9776;</span>
-                        <input type="checkbox" class="mr-2" {% if todo.completed %}checked{% endif %} onclick="toggleComplete(this)" data-id="{{ loop.index0 }}">
+                        <input type="checkbox" class="mr-2 todo-checkbox" {% if todo.completed %}checked{% endif %} onclick="toggleComplete(this)" data-id="{{ todo.id }}">
                         <span class="todo-text {% if todo.completed %}todo-completed{% endif %}" onclick="editText(this)" title="Click to edit">{{ todo.text }}</span>
                         <div>
-                            <button class="btn btn-sm btn-outline-secondary mr-2" onclick="editNote(this)" data-id="{{ loop.index0 }}" data-tooltip="{% if todo.notes %}Edit Note{% else %}Add Note{% endif %}">
+                            <button class="btn btn-sm btn-outline-secondary mr-2 notes-button" onclick="editNote(this)" data-id="{{ todo.id }}" data-tooltip="{% if todo.notes %}Edit Note{% else %}Add Note{% endif %}">
                                 <i class="{% if todo.notes %}fas fa-edit{% else %}fas fa-plus-circle{% endif %}"></i>
                             </button>
-                            <button class="btn btn-sm btn-danger" onclick="confirmDelete(this)" data-id="{{ loop.index0 }}" data-tooltip="Delete">
+                            <button class="btn btn-sm btn-danger delete-todo" onclick="confirmDelete(this)" data-id="{{ todo.id }}" data-tooltip="Delete">
                                 <i class="fas fa-trash"></i>
                             </button>
                         </div>
@@ -232,26 +232,37 @@
         var el = document.getElementById('todo-list');
         var sortable = Sortable.create(el, {
             handle: '.handle',
+            animation: 150,
+            dataIdAttr: 'data-id',  // specify the data attribute to use
             onEnd: function (evt) {
-                var order = sortable.toArray();
-                fetch('{{ url_for("reorder_todos") }}', {
+                var order = Array.from(el.children).map(item => item.getAttribute('data-id'));
+                fetch('/reorder', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ order: order })
-                }).then(updateJsonData);
-                updateDataIds();
+                }).then(response => {
+                    if (response.ok) {
+                        updateJsonData();
+                    }
+                });
             }
         });
 
         function toggleComplete(checkbox) {
-            var todoId = checkbox.getAttribute('data-id');
-            fetch('{{ url_for("complete_todo", todo_id=0) }}'.replace('0', todoId), {
+            var todoId = checkbox.closest('.list-group-item').getAttribute('data-id');
+            fetch(`/complete/${todoId}`, {
                 method: 'POST'
             }).then(response => {
                 if (response.ok) {
-                    location.reload();
+                    const textSpan = checkbox.closest('.list-group-item').querySelector('.todo-text');
+                    if (checkbox.checked) {
+                        textSpan.classList.add('todo-completed');
+                    } else {
+                        textSpan.classList.remove('todo-completed');
+                    }
+                    updateJsonData();
                 }
             });
         }
